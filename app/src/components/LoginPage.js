@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './LoginPage.css';
 
-const LoginPage = () => {
+const LoginPage = ({ onLogin }) => {
     const navigate = useNavigate();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -23,7 +24,7 @@ const LoginPage = () => {
                 const data = await response.json();
                 localStorage.setItem('token', data.access_token)
                 console.log('Login successful:', data);
-                // Redirect to a success page
+                onLogin();
                 navigate('/profile');
             } else {
                 console.log('Registration failed:', response.statusText);
@@ -37,37 +38,32 @@ const LoginPage = () => {
         setUsername('');
         setPassword('');
     };
-
     return (
-        <div className="container mt-5">
-            <h2>Login Page</h2>
-            <form onSubmit={handleSubmit}>
-                <div className="form-group">
-                    <label>Username:</label>
+        <div className="login-page">
+            <div className="login-container">
+                <h1 className="login-header">Sign-in</h1>
+                <form className="login-form" onSubmit={handleSubmit}>
                     <input
                         type="text"
-                        className="form-control"
+                        placeholder="Username"
+                        className="login-input"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         required
                     />
-                </div>
-                <div className="form-group">
-                    <label>Password:</label>
                     <input
                         type="password"
-                        className="form-control"
+                        placeholder="Password"
+                        className="login-input"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
                     />
-                </div>
-                <button type="submit" className="btn btn-primary">
-                    Register
-                </button>
-            </form>
+                    <button type="submit" className="login-button">Login</button>
+                </form>
+            </div>
         </div>
     );
-};
+}
 
 export default LoginPage;

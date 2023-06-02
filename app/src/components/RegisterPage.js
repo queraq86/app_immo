@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './LoginPage.css';
 
 const RegisterPage = () => {
   const navigate = useNavigate();
@@ -13,18 +14,16 @@ const RegisterPage = () => {
       const response = await fetch('http://localhost:8000/register', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: JSON.stringify({
-          email,
-          username,
-          password,
-        }),
+        body: new URLSearchParams({
+          email: email,
+          username: username,
+          password: password,
+        }).toString(),
       });
       if (response.ok) {
-        const data = await response.json();
-        console.log('Registration successful:', data);
-        // Redirect to a success page
+        console.log('Registration successful');
         navigate('/success');
       } else {
         console.log('Registration failed:', response.statusText);
@@ -39,47 +38,40 @@ const RegisterPage = () => {
     setUsername('');
     setPassword('');
   };
-
   return (
-    <div className="container mt-5">
-      <h2>Registration Page</h2>
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label>Email:</label>
+    <div className="login-page">
+      <div className="login-container">
+        <h1 className="login-header">Sign-up</h1>
+        <form className="login-form" onSubmit={handleSubmit}>
           <input
             type="email"
-            className="form-control"
+            placeholder="Email"
+            className="login-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-        </div>
-        <div className="form-group">
-          <label>Username:</label>
           <input
             type="text"
-            className="form-control"
+            placeholder="Username"
+            className="login-input"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
           />
-        </div>
-        <div className="form-group">
-          <label>Password:</label>
           <input
             type="password"
-            className="form-control"
+            placeholder="Password"
+            className="login-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </div>
-        <button type="submit" className="btn btn-primary">
-          Register
-        </button>
-      </form>
+          <button type="submit" className="login-button">Register</button>
+        </form>
+      </div>
     </div>
   );
-};
+}
 
 export default RegisterPage;

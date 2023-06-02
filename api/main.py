@@ -1,28 +1,27 @@
-from typing import Annotated, Union
+from typing import Union
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from database import create_user, create_property, delete_property, get_db, PropertyDB
+from pydantic import BaseModel
+from database import (
+    get_db,
+    create_user,
+    get_user,
+    read_users,
+    create_property,
+    delete_property,
+    read_properties,
+)
 
 
 SECRET_KEY = "ce0adc1727209d57f5a2750857e2e75a4a3384bf2f5af464776f404b27199bc0"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-fake_users_db = {
-    "johndoe": {
-        "username": "johndoe",
-        "full_name": "John Doe",
-        "email": "johndoe@example.com",
-        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
-        "disabled": False,
-    }
-}
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
@@ -37,25 +36,15 @@ class TokenData(BaseModel):
 
 
 class User(BaseModel):
+    id: int
     username: str
     email: Union[str, None] = None
-    full_name: Union[str, None] = None
     disabled: Union[bool, None] = None
-
-
-class UserInDB(User):
-    hashed_password: str
 
 
 class Property(BaseModel):
     name: str
     address: str
-
-
-class UserRegistration(BaseModel):
-    email: str
-    username: str
-    password: str
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -88,15 +77,9 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
-
-
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
+def authenticate_user(db: Session, username: str, password: str):
+    user = get_user(db, username)
+    if user is None:
         return False
     if not verify_password(password, user.hashed_password):
         return False
@@ -114,7 +97,9 @@ def create_access_token(data: dict, expires_delta: Union[timedelta, None] = None
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -128,10 +113,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
+    user = get_user(db, username=token_data.username)
     if user is None:
         raise credentials_exception
-    return user
+    return User(
+        id=user.id, username=user.username, email=user.email, disabled=user.disabled
+    )
 
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
@@ -141,8 +128,10 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 
 
 @app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+):
+    user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -156,14 +145,9 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.get("/users/me/", response_model=User)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
-    return current_user
-
-
-@app.get("/users/me/items/")
-async def read_own_items(current_user: User = Depends(get_current_active_user)):
-    return [{"item_id": "Foo", "owner": current_user.username}]
+@app.get("/users/")
+async def read_all_users(db: Session = Depends(get_db)):
+    return read_users(db)
 
 
 @app.get("/")
@@ -172,20 +156,32 @@ def read_root():
 
 
 @app.post("/register")
-def register_user(user: UserRegistration, db: Session = Depends(get_db)):
-    new_user = create_user(db, user.email, user.username, user.password)
-    return new_user
+async def register_user(
+    username: str = Form(),
+    password: str = Form(),
+    email: str = Form(),
+    db: Session = Depends(get_db),
+):
+    user = get_user(db, username)
+    # Check if the user already exists
+    if user:
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    # Create the user
+    hashed_password = get_password_hash(password)
+    create_user(db, email, username, hashed_password)
+
+    return {"message": "Registration successful"}
 
 
 @app.get("/properties")
-def read_properties(
+def read_user_properties(
     current_user: User = Depends(get_current_active_user),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    properties = db.query(PropertyDB).offset(skip).limit(limit).all()
-    return properties
+    return read_properties(db, current_user.id, skip, limit)
 
 
 @app.post("/properties")
@@ -194,8 +190,8 @@ def create_property_endpoint(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    new_user = create_property(db, prop.name, prop.address)
-    return new_user
+    new_prop = create_property(db, current_user.id, prop.name, prop.address)
+    return new_prop
 
 
 @app.delete("/properties/{prop_id}")
@@ -204,7 +200,7 @@ def delete_property_endpoint(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    if delete_property(db, prop_id):
+    if delete_property(db, current_user.id, prop_id):
         return {"message": "Property deleted successfully"}
     else:
         return {"message": "Property not found"}
